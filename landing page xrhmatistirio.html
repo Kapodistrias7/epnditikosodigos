@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Επένδυσε Έξυπνα</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="left-column">
+            <div class="message">
+                <p>Οι ορθές επενδύσεις χρειάζονται καθοδήγηση. Σταμάτα να πληρώνεις υπέρογκες χρεώσεις στις χρηματιστηριακές. Κάνε σήμερα την εγγραφή σου και μάθε πως να επενδύεις σωστά!</p>
+            </div>
+        </div>
+        <div class="right-column">
+            <div class="signup-form">
+                <h2 class="form-title">Εγγραφή</h2>
+                <form id="signup-form" action="https://formsubmit.co/fstr640@gmail.com" method="POST" novalidate>
+                    <!-- Honeypot to prevent spam -->
+                    <input type="text" name="_honey" style="display:none">
+                    
+                    <!-- Disable captcha -->
+                    <input type="hidden" name="_captcha" value="false">
+                    
+                    <!-- Redirect after submission -->
+                    <input type="hidden" name="_next" value="https://formsubmit.co/thanks">
+                    
+                    <!-- Exclude fields from formSubmit -->
+                    <input type="hidden" name="_template" value="table">
+                    
+                    <div class="form-group">
+                        <label for="name">Ονοματεπώνυμο</label>
+                        <input type="text" id="name" name="name" required>
+                        <div class="error-message" id="name-error">Παρακαλώ συμπληρώστε το ονοματεπώνυμό σας</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email" required pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$">
+                        <div class="error-message" id="email-error">Παρακαλώ εισάγετε ένα έγκυρο email</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">Τηλέφωνο</label>
+                        <input type="tel" id="phone" name="phone" placeholder="+30 XXXXXXXXXX" pattern="(\+30)?\s*[2-6,9]{1}[0-9]{9}">
+                        <div class="error-message" id="phone-error">Παρακαλώ εισάγετε έναν έγκυρο αριθμό τηλεφώνου (π.χ. +30 6912345678)</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Κωδικός</label>
+                        <!-- Changed name to _password so it's not sent to FormSubmit -->
+                        <input type="password" id="password" name="_password" required minlength="8">
+                        <div class="error-message" id="password-error">Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες</div>
+                    </div>
+                    
+                    <!-- Hidden field to indicate password was provided without sending actual password -->
+                    <input type="hidden" name="password_provided" value="yes">
+                    
+                    <button type="submit">Εγγραφή</button>
+                    <div class="terms">
+                        Με την εγγραφή σας, αποδέχεστε τους <a href="#">Όρους Χρήσης</a> και την <a href="#">Πολιτική Απορρήτου</a>.
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Show validation errors on input
+        const inputs = document.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('input', function() {
+                validateInput(this);
+            });
+            
+            input.addEventListener('blur', function() {
+                validateInput(this);
+            });
+        });
+        
+        // Validate individual input
+        function validateInput(input) {
+            const errorElement = document.getElementById(`${input.id}-error`);
+            if (!errorElement) return; // Skip hidden inputs
+            
+            if (!input.checkValidity()) {
+                errorElement.style.display = 'block';
+                input.classList.add('invalid');
+            } else {
+                errorElement.style.display = 'none';
+                input.classList.remove('invalid');
+            }
+        }
+        
+        // Handle form submission
+        document.getElementById('signup-form').addEventListener('submit', function(e) {
+            let isValid = true;
+            
+            // Validate all inputs including password
+            inputs.forEach(input => {
+                // Skip validation for hidden/system fields
+                if (input.type === 'hidden' || input.name.startsWith('_')) {
+                    return;
+                }
+                
+                // Special handling for password which has _password name but id=password
+                if (input.id === 'password') {
+                    if (!input.checkValidity()) {
+                        isValid = false;
+                        validateInput(input);
+                    }
+                    return;
+                }
+                
+                if (!input.checkValidity()) {
+                    isValid = false;
+                    validateInput(input);
+                }
+            });
+            
+            if (!isValid) {
+                e.preventDefault(); // Prevent form submission if validation fails
+            }
+        });
+    </script>
+</body>
+</html>
