@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+from tkinter import font as tkfont
 import wave
 
 W, H = 800, 520
@@ -6644,6 +6645,16 @@ def load_embedded(data):
         return None
 
 
+def pick_title_font(root):
+    """First installed font from a futuristic shortlist (Orbitron etc. if present, else built-ins)."""
+    installed = {f.lower(): f for f in tkfont.families(root)}
+    for name in ("Orbitron", "Audiowide", "Bank Gothic", "Eurostile", "OCR A Extended",
+                 "Bahnschrift", "Agency FB", "Impact", "Consolas"):
+        if name.lower() in installed:
+            return installed[name.lower()]
+    return FONT
+
+
 class Sounds:
     """Synthesised sound effects (stdlib only). Silent if no audio backend is available."""
     RATE = 22050
@@ -6760,6 +6771,7 @@ class Game:
     def __init__(self, root):
         self.snd = Sounds()
         self.root = root
+        self.title_font = pick_title_font(root)
         root.title("Reflex Arena")
         root.resizable(False, False)
         # a transparent icon replaces the default feather icon
@@ -7037,7 +7049,10 @@ class Game:
     def draw_menu(self, now):
         c = self.c
         pulse = 1 + 0.04 * math.sin(now * 3)
-        c.create_text(W / 2, 100, text="REFLEX ARENA", fill="#4d7cff", font=(FONT, int(54 * pulse), "bold"))
+        size = int(46 * pulse)
+        # neon glow: offset layers behind the main title
+        for dx, dy, col in ((-3, 3, "#7a1fa2"), (3, -3, "#00c8ff"), (0, 0, "#ffffff")):
+            c.create_text(W / 2 + dx, 100 + dy, text="REFLEX ARENA", fill=col, font=(self.title_font, size, "bold"))
         c.create_text(W / 2, 150, text="How fast are you really?", fill="#9fb3ff", font=(FONT, 16, "italic"))
         for i, (label, sub, key) in enumerate((
                 ("1  -  Race Start", "React when the lights go out. Best avg: %s ms" % self.scores.get("race_avg", "-"), "race"),
