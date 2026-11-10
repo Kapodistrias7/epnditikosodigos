@@ -1,0 +1,27 @@
+name: Build Reflex Arena (Windows exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [add-reflex-arena]
+    paths:
+      - "reflex-arena/**"
+      - ".github/workflows/build-reflex-arena.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      - name: Build
+        working-directory: reflex-arena
+        run: pyinstaller --onefile --windowed --name ReflexArena reflex_arena.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReflexArena-windows
+          path: reflex-arena/dist/ReflexArena.exe
