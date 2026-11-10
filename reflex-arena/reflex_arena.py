@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tkinter as tk
 import wave
@@ -6717,15 +6718,31 @@ class Sounds:
                     f.write(data)
                 self.files[key] = path
             if sys.platform == "win32":
-                import winsound
-                # SND_MEMORY can't be combined with SND_ASYNC, so play from files
-                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                threading.Thread(target=self.play_windows, args=(path,), daemon=True).start()
             elif self.player:
                 subprocess.Popen(self.player + [path], stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
         except Exception as exc:
             print("Sound disabled:", exc)
             self.enabled = False
+
+    def play_windows(self, path):
+        """Blocking playback in a worker thread; falls back to the winmm MCI API."""
+        import winsound
+        try:
+            winsound.PlaySound(path, winsound.SND_FILENAME)
+            return
+        except Exception as exc:
+            print("winsound failed:", exc)
+        try:
+            import ctypes
+            alias = "snd%d" % threading.get_ident()
+            mci = ctypes.windll.winmm.mciSendStringW
+            mci('open "%s" type waveaudio alias %s' % (path, alias), None, 0, None)
+            mci("play %s wait" % alias, None, 0, None)
+            mci("close %s" % alias, None, 0, None)
+        except Exception as exc:
+            print("MCI playback failed:", exc)
 
     def repitch(self, data, pitch):
         with wave.open(io.BytesIO(data)) as w:
@@ -7107,6 +7124,14 @@ class Game:
 
 
 if __name__ == "__main__":
+    if "--test-sound" in sys.argv:
+        s = Sounds()
+        print("Platform:", sys.platform, "| player:", s.player)
+        for name in ("start", "light", "go", "hit", "miss", "best"):
+            print("Playing", name)
+            s.play(name)
+            time.sleep(0.8)
+        sys.exit()
     root = tk.Tk()
     Game(root)
     root.mainloop()
