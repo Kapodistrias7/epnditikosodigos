@@ -3,14 +3,22 @@
 Modes:
   1. Race Start  - F1-style lights; react when they go out (5 rounds).
   2. Target Blitz - 30 seconds of shrinking targets; fast hits and combos score more.
-Standard library only (tkinter).
+Standard library only (tkinter). Sound effects are synthesised at runtime.
 """
+import atexit
+import io
 import json
 import math
 import os
 import random
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
 import time
 import tkinter as tk
+import wave
 
 W, H = 800, 520
 ROUNDS = 5
@@ -6635,8 +6643,107 @@ def load_embedded(data):
         return None
 
 
+class Sounds:
+    """Synthesised sound effects (stdlib only). Silent if no audio backend is available."""
+    RATE = 22050
+
+    def __init__(self):
+        self.enabled = True
+        self.player = None
+        self.cache = {}
+        self.files = {}
+        if sys.platform != "win32":
+            for cmd in (["afplay"], ["paplay"], ["aplay", "-q"], ["play", "-q"]):
+                if shutil.which(cmd[0]):
+                    self.player = cmd
+                    break
+            self.dir = tempfile.mkdtemp(prefix="reflex_snd_")
+            atexit.register(shutil.rmtree, self.dir, True)
+
+    def tone(self, notes, vol=0.5, wave_type="sine"):
+        """notes: list of (freq_hz, seconds); freq 0 = silence; freq may be (start, end) for a sweep."""
+        out = []
+        phase = 0.0
+        for freq, dur in notes:
+            n = int(self.RATE * dur)
+            for i in range(n):
+                f = freq[0] + (freq[1] - freq[0]) * i / n if isinstance(freq, tuple) else freq
+                phase += f / self.RATE
+                if wave_type == "square":
+                    v = 1.0 if (phase % 1) < 0.5 else -1.0
+                elif wave_type == "noise":
+                    v = random.uniform(-1, 1)
+                else:
+                    v = math.sin(math.tau * phase)
+                env = min(1.0, i / 120, (n - i) / (n * 0.6 + 1))
+                out.append(int(32767 * vol * v * env * (0 if f == 0 else 1)))
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(self.RATE)
+            w.writeframes(struct.pack("<%dh" % len(out), *out))
+        return buf.getvalue()
+
+    def build(self, name):
+        t = self.tone
+        return {
+            "click": lambda: t([(660, 0.05)], 0.3),
+            "start": lambda: t([(440, 0.07), (660, 0.07), (880, 0.1)], 0.35),
+            "back": lambda: t([(660, 0.06), (440, 0.08)], 0.3),
+            "light": lambda: t([(520, 0.12)], 0.4, "square"),
+            "go": lambda: t([(1046, 0.25)], 0.45, "square"),
+            "result": lambda: t([(784, 0.08), (1175, 0.16)], 0.4),
+            "false": lambda: t([(140, 0.45)], 0.5, "square"),
+            "hit": lambda: t([(900, 0.05), (1350, 0.09)], 0.4),
+            "miss": lambda: t([((300, 120), 0.18)], 0.5),
+            "expire": lambda: t([(220, 0.12), (160, 0.18)], 0.4, "square"),
+            "over": lambda: t([(523, 0.12), (392, 0.12), (330, 0.12), (262, 0.3)], 0.4),
+            "best": lambda: t([(523, 0.1), (659, 0.1), (784, 0.1), (1046, 0.35)], 0.45),
+            "tick": lambda: t([(1200, 0.04)], 0.25),
+        }[name]()
+
+    def play(self, name, pitch=1.0):
+        if not self.enabled:
+            return
+        key = (name, pitch)
+        try:
+            if key not in self.cache:
+                data = self.build(name)
+                if pitch != 1.0:
+                    data = self.repitch(data, pitch)
+                self.cache[key] = data
+            data = self.cache[key]
+            if sys.platform == "win32":
+                import winsound
+                winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_ASYNC)
+            elif self.player:
+                path = self.files.get(key)
+                if path is None:
+                    path = os.path.join(self.dir, "%s_%s.wav" % (name, int(pitch * 100)))
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    self.files[key] = path
+                subprocess.Popen(self.player + [path], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        except Exception:
+            self.enabled = False
+
+    def repitch(self, data, pitch):
+        with wave.open(io.BytesIO(data)) as w:
+            frames = w.readframes(w.getnframes())
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(int(self.RATE * pitch))
+            w.writeframes(frames)
+        return buf.getvalue()
+
+
 class Game:
     def __init__(self, root):
+        self.snd = Sounds()
         self.root = root
         root.title("Reflex Arena")
         root.resizable(False, False)
@@ -6670,6 +6777,8 @@ class Game:
 
     # ---------- helpers ----------
     def to_menu(self):
+        if hasattr(self, "state") and self.state != "menu":
+            self.snd.play("back")
         self.state = "menu"
 
     def burst(self, x, y, color, n=30, speed=260):
@@ -6692,6 +6801,7 @@ class Game:
 
     # ---------- Race Start mode ----------
     def start_race(self):
+        self.snd.play("start")
         self.state = "race"
         self.times = []
         self.new_best = False
@@ -6708,12 +6818,14 @@ class Game:
     def race_update(self, now):
         if self.phase == "lights" and now >= self.next_light:
             self.lit += 1
+            self.snd.play("light")
             self.next_light = now + 0.8
             if self.lit == 5:
                 self.phase = "hold"
                 self.go_at = now + self.hold
         elif self.phase == "hold" and now >= self.go_at:
             self.phase = "go"
+            self.snd.play("go")
             self.go_time = now
 
     def race_click(self):
@@ -6722,10 +6834,12 @@ class Game:
             self.phase = "false"
             self.msg = "FALSE START!  Click to retry"
             self.shake = 0.4
+            self.snd.play("false")
         elif self.phase == "go":
             ms = int((now - self.go_time) * 1000)
             self.times.append(ms)
             self.phase = "result"
+            self.snd.play("result", 1.0 if ms < 300 else 0.85)
             self.flash = ["#22ff88", 0.3]
             self.burst(W / 2, 260, "#22ff88", 50)
             self.msg = "%d ms" % ms
@@ -6733,7 +6847,9 @@ class Game:
                 self.phase = "final"
                 avg = sum(self.times) / len(self.times)
                 self.new_best = self.record("race_avg", round(avg), True)
+                self.snd.play("best" if self.new_best else "over")
         elif self.phase in ("false", "result"):
+            self.snd.play("click")
             self.race_round()
         elif self.phase == "final":
             self.to_menu()
@@ -6796,6 +6912,8 @@ class Game:
 
     # ---------- Target Blitz mode ----------
     def start_blitz(self):
+        self.snd.play("start")
+        self.last_tick = None
         self.state = "blitz"
         self.score = 0
         self.combo = 0
@@ -6820,10 +6938,16 @@ class Game:
             self.over = True
             self.target = None
             self.new_best = self.record("blitz_score", self.score, False)
+            self.snd.play("best" if self.new_best else "over")
             return
+        left = int(self.end_time - now) + 1
+        if left <= 5 and left != self.last_tick:
+            self.last_tick = left
+            self.snd.play("tick")
         if self.target is None and now >= self.spawn_at:
             self.spawn_target(now)
         elif self.target and now - self.target["born"] > self.target["life"]:
+            self.snd.play("expire")
             self.burst(self.target["x"], self.target["y"], "#ff5555", 12, 120)
             self.popup(self.target["x"], self.target["y"], "MISSED", "#ff5555")
             self.combo = 0
@@ -6846,6 +6970,7 @@ class Game:
             mult = 1 + self.combo // 5
             pts = max(10, int(100 - rt * 55)) * mult
             self.score += pts
+            self.snd.play("hit", min(1.6, 1 + 0.05 * self.combo))
             self.burst(t["x"], t["y"], "#ffd54a")
             self.popup(t["x"], t["y"], "+%d  (%d ms)" % (pts, rt * 1000), "#ffd54a")
             self.target = None
@@ -6855,6 +6980,7 @@ class Game:
             self.combo = 0
             self.score = max(0, self.score - 25)
             self.shake = 0.25
+            self.snd.play("miss")
             self.popup(x, y, "-25", "#ff5555")
 
     def draw_blitz(self, now):
