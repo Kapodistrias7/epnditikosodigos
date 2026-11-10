@@ -6645,6 +6645,29 @@ def load_embedded(data):
         return None
 
 
+def hide_window_icon(root):
+    """Replace the default window icon with a fully transparent one."""
+    if sys.platform == "win32":
+        # 16x16 32-bit ICO, every pixel alpha 0 (a transparent PhotoImage shows up black here)
+        dib = struct.pack("<IiiHHIIiiII", 40, 16, 32, 1, 32, 0, 1024 + 64, 0, 0, 0, 0)
+        ico = struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 16, 16, 0, 0, 1, 32, len(dib) + 1088, 22)
+        ico += dib + bytes(1024) + b"\xff" * 64
+        path = os.path.join(tempfile.gettempdir(), "reflex_blank.ico")
+        try:
+            with open(path, "wb") as f:
+                f.write(ico)
+            root.iconbitmap(default=path)
+            return
+        except (OSError, tk.TclError):
+            pass
+    try:
+        icon = tk.PhotoImage(width=16, height=16)
+        root.iconphoto(True, icon)
+        root._blank_icon = icon
+    except tk.TclError:
+        pass
+
+
 def pick_title_font(root):
     """First installed font from a futuristic shortlist (Orbitron etc. if present, else built-ins)."""
     installed = {f.lower(): f for f in tkfont.families(root)}
@@ -6774,12 +6797,7 @@ class Game:
         self.title_font = pick_title_font(root)
         root.title("Reflex Arena")
         root.resizable(False, False)
-        # a transparent icon replaces the default feather icon
-        self.icon = tk.PhotoImage(width=16, height=16)
-        try:
-            root.iconphoto(True, self.icon)
-        except tk.TclError:
-            pass
+        hide_window_icon(root)
         self.bg_image = make_background()
         self.race_bg = load_embedded(RACE_BG_DATA)
         self.blitz_bg = load_embedded(BLITZ_BG_DATA)
