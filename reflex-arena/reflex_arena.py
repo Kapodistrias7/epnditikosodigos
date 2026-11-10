@@ -6650,15 +6650,14 @@ class Sounds:
     def __init__(self):
         self.enabled = True
         self.player = None
-        self.cache = {}
         self.files = {}
+        self.dir = tempfile.mkdtemp(prefix="reflex_snd_")
+        atexit.register(shutil.rmtree, self.dir, True)
         if sys.platform != "win32":
             for cmd in (["afplay"], ["paplay"], ["aplay", "-q"], ["play", "-q"]):
                 if shutil.which(cmd[0]):
                     self.player = cmd
                     break
-            self.dir = tempfile.mkdtemp(prefix="reflex_snd_")
-            atexit.register(shutil.rmtree, self.dir, True)
 
     def tone(self, notes, vol=0.5, wave_type="sine"):
         """notes: list of (freq_hz, seconds); freq 0 = silence; freq may be (start, end) for a sweep."""
@@ -6708,25 +6707,24 @@ class Sounds:
             return
         key = (name, pitch)
         try:
-            if key not in self.cache:
+            path = self.files.get(key)
+            if path is None:
                 data = self.build(name)
                 if pitch != 1.0:
                     data = self.repitch(data, pitch)
-                self.cache[key] = data
-            data = self.cache[key]
+                path = os.path.join(self.dir, "%s_%d.wav" % (name, int(pitch * 100)))
+                with open(path, "wb") as f:
+                    f.write(data)
+                self.files[key] = path
             if sys.platform == "win32":
                 import winsound
-                winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_ASYNC)
+                # SND_MEMORY can't be combined with SND_ASYNC, so play from files
+                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
             elif self.player:
-                path = self.files.get(key)
-                if path is None:
-                    path = os.path.join(self.dir, "%s_%s.wav" % (name, int(pitch * 100)))
-                    with open(path, "wb") as f:
-                        f.write(data)
-                    self.files[key] = path
                 subprocess.Popen(self.player + [path], stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
-        except Exception:
+        except Exception as exc:
+            print("Sound disabled:", exc)
             self.enabled = False
 
     def repitch(self, data, pitch):
